@@ -1,0 +1,4 @@
+Name: View in Tableau
+Description: View a data.frame in Tableau.
+Binding: view_in_xl
+Interactive: true

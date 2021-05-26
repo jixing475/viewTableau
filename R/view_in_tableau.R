@@ -1,0 +1,112 @@
+
+
+#' Open a data.frame in 'Tableau'
+#'
+#' @param df The name of a \code{data.frame} or a \code{data.frame} itself, if not provided, an addin is launched.
+#'
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#'
+#' # Launch addin
+#' view_in_tableau()
+#'
+#' # or pass the name of a data.frame
+#' view_in_tableau("iris")
+#' 
+#' # or directly the object
+#' view_in_tableau(iris)
+#' 
+#' #devtools::install_github("btibert3/pantabR")
+#'
+#' }
+#' @importFrom miniUI miniPage miniButtonBlock miniContentPanel
+#' @importFrom rstudioapi getSourceEditorContext
+#' @importFrom shiny actionLink actionButton icon observeEvent
+#'  runGadget dialogViewer tags stopApp
+#' @importFrom utils browseURL
+#' @importFrom pantabR frame_to_hyper
+view_in_tableau <- function(df = NULL) {
+  if (is.null(df)) {
+    context <- try(rstudioapi::getSourceEditorContext(), silent = TRUE)
+    if ("try-error" %in% class(context)) {
+      df <- search_obj()
+    } else {
+      df <- context$selection[[1]]$text
+      is_df <- tryCatch({
+        test <- get(df, envir = .GlobalEnv)
+        test <- as.data.frame(test)
+        list(res = is.data.frame(test))
+      }, error = function(e) {
+        list(res = FALSE)
+      })
+      if (!is_df$res) {
+        df <- search_obj()
+      }
+    }
+  }
+  if (is.character(df) & length(df) == 0) {
+    message("It seems that there are no data.frames in global environment...")
+    return(invisible())
+  }
+  if ((is.character(df) & length(df) == 1) | is.data.frame(df)) {
+    tmp <- tempfile(fileext = ".hyper")
+    df <- get_df(df)
+    if (is.null(df)) {
+      message("Selected object must be a data.frame in GlobalEnv.")
+      return(invisible())
+    }
+    df <- as.data.frame(df)
+    pantabR::frame_to_hyper(d = df, f = tmp, tbl="Rdata")
+    browseURL(url = tmp)
+    return(invisible(tmp))
+  } else {
+    tags_df <- lapply(
+      X = df,
+      FUN = function(x) {
+        obj <- get_df(x)
+        tags$li(
+          actionLink(
+            inputId = paste0("view_in_tableau_", x),
+            label = sprintf("%s (%s obs. of  %s variables)", x, nrow(obj), ncol(obj))
+          )
+        )
+      }
+    )
+    ui <- miniPage(
+      miniContentPanel(
+        tags$ul(tags_df)
+      ),
+      miniButtonBlock(
+        actionButton(
+          inputId = "close", label = "Close",
+          icon = icon("remove"),
+          class = "btn-block btn-primary"
+        )
+      )
+    )
+    server <- function(input, output, session) {
+      lapply(
+        X = paste0("view_in_tableau_", df),
+        FUN = function(x) {
+          observeEvent(input[[x]], {
+            tmp <- tempfile(fileext = ".hyper")
+            obj <- gsub(pattern = "view_in_tableau_", replacement = "", x = x)
+            pantabR::frame_to_hyper(d = get_df(obj), f = tmp, tbl="Rdata")
+            #write_xlsx(x = get_df(obj), path = tmp)
+            browseURL(url = tmp)
+          }, ignoreInit = TRUE)
+        }
+      )
+      observeEvent(input$close, stopApp())
+    }
+    inviewer <- dialogViewer(
+      "View a data.frame in Tableau",
+      width = 450, height = 180
+    )
+    runGadget(app = ui, server = server, viewer = inviewer)
+  }
+}
+
+
